@@ -4,3 +4,9 @@
 É necessário garantir que essas informações sejam criptografadas durante todo o processo de pagamento e que a integridade das transações seja verificada.  
 
 **Descrição do Projeto**: Este sistema de pagamentos criptografa as informações financeiras dos clientes usando Fernet antes de enviá-las ao banco de dados MongoDB Atlas. Um hash SHA-256 ́e gerado para cada transação, garantindo que qualquer alteração ou adulteração possa ser detectada.
+
+
+**Tecnologias**:
+- Python
+- Tkinter ( biblioteca para criar interfaces gráficas )
+- Bancos de dados não relacional - MongoDB
