@@ -3,6 +3,9 @@ from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
+import requests
+from io import BytesIO
+
 
 def connect_to_mongo():
     try:
@@ -11,6 +14,10 @@ def connect_to_mongo():
         db = client['Loja_Virtual']
         global usuarios
         usuarios = db['usuarios']  # Coleção para armazenar usuários
+
+        global produtos
+        produtos = db['produtos']  # Coleção de produtos
+
     except Exception as e:
         messagebox.showerror("Erro", f"Não foi possível conectar ao MongoDB: {str(e)}")
 
@@ -41,65 +48,24 @@ def criar_cadastro(event=None):
         messagebox.showinfo("Sucesso", "Cadastro realizado com sucesso!")
 
 
-# Função para abrir a página principal
-def abrir_pagina_principal():
-    janela_login.destroy()
-
-
-    janela_principal = tk.Tk()
-    janela_principal.title("Página Principal")
-    janela_principal.attributes('-fullscreen', True)  # Tela cheia automaticamente
-
-    # Criar um Frame para o Painel de Controle
-    painel_controle = tk.Frame(janela_principal, bg="lightgrey", padx=20, pady=20)
-    painel_controle.grid(row=0, column=0, sticky="ns")
-
-    # Criar um Frame para o Conteúdo Principal
-    conteudo_principal = tk.Frame(janela_principal, bg="white", padx=20, pady=20)
-    conteudo_principal.grid(row=0, column=1, sticky="nsew")
-
-    # Configurar a grade para expansão do conteúdo principal
-    janela_principal.grid_rowconfigure(0, weight=1)
-    janela_principal.grid_columnconfigure(1, weight=1)
-
-    # Título do Painel
-    label_titulo_painel = tk.Label(painel_controle, text="MENU!!", font=("Helvetica", 18, "bold"), bg="lightgrey")
-    label_titulo_painel.pack(pady=10)
-
-    # Menu de Produtos
-    botao_produtos = tk.Button(painel_controle, text="Produtos", command=abrir_menu_produtos, font=("Helvetica", 14),
-                               bg="blue", fg="white", width=15)
-    botao_produtos.pack(pady=10)
-
-    # Menu do Carrinho
-
-    # Menu do Histórico de Transações
-    botao_historico = tk.Button(painel_controle, text="Transações", command=abrir_historico_transacoes,
-                                font=("Helvetica", 14), bg="orange", fg="white", width=15)
-    botao_historico.pack(pady=10)
-
-    # Botão de Sair
-    botao_sair = tk.Button(janela_principal, text="Sair", command=janela_principal.destroy, font=("Helvetica", 16),
-                           bg="red", fg="white", width=10)
-    botao_sair.grid(row=1, column=0, columnspan=2, pady=20)
-
-    # Exibir conteúdo inicial
-    conteudo_inicial = tk.Label(conteudo_principal, text="Bem-vindo à Loja Virtual!", font=("Helvetica", 24))
-    conteudo_inicial.pack(pady=100)
-
-    # Adiciona o botão de voltar
-    botao_voltar = tk.Button(janela_principal, text="Voltar", command=criar_janela_login, font=("Helvetica", 16),
-                             bg="yellow", fg="black", width=10)
-    botao_voltar.grid(row=1, column=2, pady=20)
-
-    janela_principal.mainloop()
+def carregar_imagem_url(url):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Checa se houve erro na requisição
+        img_data = response.content
+        img = Image.open(BytesIO(img_data))
+        img = img.resize((100, 100), Image.LANCZOS)  # Ajusta o tamanho da imagem
+        return ImageTk.PhotoImage(img)
+    except Exception as e:
+        messagebox.showerror("Erro", f"Não foi possível carregar a imagem: {str(e)}")
+        return None
 
 
 def abrir_pagina_principal():
     # Se a janela de login foi destruída, não tente destruí-la novamente
     if 'janela_login' in globals() and janela_login.winfo_exists():
         janela_login.destroy()
-
+    global janela_principal
     janela_principal = tk.Tk()
     janela_principal.title("Página Principal")
     janela_principal.attributes('-fullscreen', True)  # Tela cheia automaticamente
@@ -121,7 +87,8 @@ def abrir_pagina_principal():
     label_titulo_painel.grid(row=0, column=0, pady=10)
 
     # Menu de Produtos
-    botao_produtos = tk.Button(painel_controle, text="Produtos", command=abrir_menu_produtos, font=("Helvetica", 14),
+    botao_produtos = tk.Button(painel_controle, text="Produtos",
+                               command=lambda: abrir_menu_produtos(conteudo_principal), font=("Helvetica", 14),
                                bg="blue", fg="white", width=15)
     botao_produtos.grid(row=1, column=0, pady=10)
 
@@ -138,15 +105,16 @@ def abrir_pagina_principal():
     # Exibir conteúdo inicial
     conteudo_inicial = tk.Label(conteudo_principal, text="Bem-vindo à Loja Virtual!", font=("Helvetica", 24))
     conteudo_inicial.grid(row=0, column=0, pady=20)
+    lista_produtos = []
+    for produto in produtos.find():
+        # Filtra os valores para excluir o campo _id
+        valores = [valor for chave, valor in produto.items() if chave != '_id']
+        lista_produtos.append(valores)
 
-    # Adiciona os bloquinhos com informações em três colunas
-    produtos = [("Produto A", 10.99), ("Produto B", 15.50), ("Produto C", 7.25),
-                ("Produto D", 20.00), ("Produto E", 5.99), ("Produto F", 12.75)]
-
-    for index, (name, price) in enumerate(produtos):
+    for index, (name, price, url_imagem) in enumerate(lista_produtos):
         row = index // 3  # Divisão inteira para determinar a linha
         column = index % 3  # Módulo para determinar a coluna
-        create_block(conteudo_principal, name, price, row, column)
+        create_block(conteudo_principal, name, price, url_imagem, row, column)
 
     # Adiciona o botão de voltar
     botao_voltar = tk.Button(janela_principal, text="Voltar", command=criar_janela_login, font=("Helvetica", 16),
@@ -161,12 +129,37 @@ def abrir_pagina_principal():
     janela_principal.mainloop()
 
 
-def create_block(parent, name, price, row, column):
+def atualizar_pagina_principal(conteudo_principal):
+    # Limpa o conteúdo principal para evitar duplicação
+    for widget in conteudo_principal.winfo_children():
+        widget.destroy()
+
+    # Atualiza a lista de produtos
+    lista_produtos = []
+    for produto in produtos.find():
+        # Filtra os valores para excluir o campo _id
+        valores = [valor for chave, valor in produto.items() if chave != '_id']
+        lista_produtos.append(valores)
+
+        # Re-cria os blocos de produtos
+    for index, (name, price, url_imagem) in enumerate(lista_produtos):
+        row = index // 3  # Divisão inteira para determinar a linha
+        column = index % 3  # Módulo para determinar a coluna
+        create_block(conteudo_principal, name, price, url_imagem, row, column)
+
+
+def create_block(parent, name, price, url_imagem, row, column):
     """Função para criar um 'bloquinho' com nome, preço e botão de compra."""
     block = tk.Frame(parent, bg='white', padx=20, pady=20, relief='groove', bd=2)
     block.grid(row=row, column=column, padx=10, pady=10, sticky='nsew')
 
-    name_label = tk.Label(block, text=f"Nome: {name}", bg='white' , font=("Helvetica", 15) )
+    imagem = carregar_imagem_url(url_imagem)
+    if imagem:
+        image_label = tk.Label(block, image=imagem, bg='white')
+        image_label.image = imagem  # Necessário para manter a referência da imagem
+        image_label.pack()
+
+    name_label = tk.Label(block, text=f"Nome: {name}", bg='white', font=("Helvetica", 15))
     name_label.pack(anchor='w')
 
     price_label = tk.Label(block, text=f"Preço: R$ {price:.2f}", bg='white', font=("Helvetica", 15))
@@ -176,6 +169,7 @@ def create_block(parent, name, price, row, column):
     buy_button = tk.Button(block, text="Comprar", bg='blue', fg='white', font=("Helvetica", 15),
                            command=lambda: abrir_janela_pagamento(name, price))
     buy_button.pack(pady=10)
+
 
 def abrir_janela_pagamento(product_name, product_price):
     """Função para abrir a janela de pagamento."""
@@ -217,8 +211,11 @@ def abrir_janela_pagamento(product_name, product_price):
 
     # Botão para confirmar a compra
     botao_confirmar = tk.Button(janela_pagamento, text="Confirmar Compra", bg='green', fg='white',
-                                 font=("Helvetica", 12), command=lambda: confirmar_compra(entry_cartao.get(), entry_validade.get(), entry_cvc.get(), product_name))
+                                font=("Helvetica", 12),
+                                command=lambda: confirmar_compra(entry_cartao.get(), entry_validade.get(),
+                                                                 entry_cvc.get(), product_name))
     botao_confirmar.pack(pady=20)
+
 
 def confirmar_compra(cartao, validade, cvc, product_name):
     """Função que confirma a compra e exibe uma mensagem."""
@@ -226,7 +223,7 @@ def confirmar_compra(cartao, validade, cvc, product_name):
     messagebox.showinfo("Compra Confirmada", f"Compra do produto '{product_name}' realizada com sucesso!")
 
 
-def abrir_menu_produtos():
+def abrir_menu_produtos(conteudo_principal):
     # Conectar ao MongoDB e acessar a coleção de produtos
     uri = "mongodb+srv://root:123@cluster0.bqxvu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
@@ -239,23 +236,13 @@ def abrir_menu_produtos():
 
     # Função para exibir a lista de produtos
     def exibir_produtos():
-
+        lista_produtos.delete(0, tk.END)  # Limpar a lista de produtos
         for produto in produtos.find():
             lista_produtos.insert(
                 tk.END, f"{produto['nome']} - R${produto['preco']}"
             )
 
     # Função para abrir o seletor de arquivos e selecionar uma imagem
-    def selecionar_imagem():
-        caminho_imagem = filedialog.askopenfilename(
-            title="Selecione uma imagem",
-            filetypes=[("Arquivos de imagem", "*.jpg *.png *.jpeg")]
-        )
-        if caminho_imagem:
-            entry_imagem.config(state=tk.NORMAL)
-            entry_imagem.delete(0, tk.END)
-            entry_imagem.insert(0, caminho_imagem)
-            entry_imagem.config(state=tk.DISABLED)
 
     # Função para adicionar um novo produto com imagem
     def adicionar_produto():
@@ -266,13 +253,13 @@ def abrir_menu_produtos():
         if nome and preco and caminho_imagem:
             try:
                 preco = float(preco)
-                with open(caminho_imagem, "rb") as img_file:
-                    imagem_bytes = img_file.read()  # Ler a imagem como bytes
 
                 # Inserir o produto no MongoDB
-                produtos.insert_one({"nome": nome, "preco": preco, "imagem": imagem_bytes})
+                produtos.insert_one({"nome": nome, "preco": preco, "imagem": caminho_imagem})
                 messagebox.showinfo("Sucesso", "Produto adicionado com sucesso!")
-                exibir_produtos()  # Atualizar a lista de produtos
+                exibir_produtos()
+                atualizar_pagina_principal(conteudo_principal)
+                # Atualizar a lista de produtos
             except ValueError:
                 messagebox.showerror("Erro", "O preço deve ser um valor numérico.")
         else:
@@ -294,16 +281,12 @@ def abrir_menu_produtos():
     entry_preco = tk.Entry(frame_formulario, font=("Helvetica", 14))
     entry_preco.grid(row=1, column=1, padx=5, pady=5)
 
-    # Campo de imagem
-    tk.Label(frame_formulario, text="Imagem:", font=("Helvetica", 14)).grid(row=2, column=0, padx=5, pady=5)
-    entry_imagem = tk.Entry(frame_formulario, font=("Helvetica", 14), state=tk.DISABLED, width=30)
+    tk.Label(frame_formulario, text="URL da Imagem:", font=("Helvetica", 14)).grid(row=2, column=0, padx=5, pady=5)
+    entry_imagem = tk.Entry(frame_formulario, font=("Helvetica", 14), width=30)
     entry_imagem.grid(row=2, column=1, padx=5, pady=5)
 
-    botao_selecionar_imagem = tk.Button(frame_formulario, text="Selecionar Imagem", command=selecionar_imagem,
-                                        font=("Helvetica", 12))
-    botao_selecionar_imagem.grid(row=2, column=2, padx=5, pady=5)
-
-    botao_adicionar = tk.Button(janela_produtos, text="Adicionar Produto", font=("Helvetica", 14), bg="green", fg="white",
+    botao_adicionar = tk.Button(janela_produtos, text="Adicionar Produto", font=("Helvetica", 14), bg="green",
+                                fg="white",
                                 command=adicionar_produto)
     botao_adicionar.pack(pady=10)
 
@@ -316,10 +299,12 @@ def abrir_menu_produtos():
 
     janela_produtos.mainloop()
 
+
 # Função para voltar ao menu principal
 def voltar_para_menu(janela_atual):
     janela_atual.destroy()
     abrir_pagina_principal()
+
 
 def abrir_historico_transacoes():
     janela_historico = tk.Tk()
@@ -337,16 +322,12 @@ def abrir_historico_transacoes():
     janela_historico.mainloop()
 
 
-# Função para voltar ao menu principal
-def voltar_para_menu(janela_atual):
-    janela_atual.destroy()
-    abrir_pagina_principal()
-
-
 # Função para criar a interface de Login/Cadastro
 def criar_janela_login():
     global janela_login, entry_usuario, entry_senha
 
+    if 'janela_principal' in globals() and janela_principal.winfo_exists():
+        janela_principal.destroy()
     janela_login = tk.Tk()
     janela_login.title("Sistema de Login")
     janela_login.attributes('-fullscreen', True)  # Tela cheia automaticamente
