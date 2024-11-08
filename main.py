@@ -5,33 +5,52 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import requests
 from io import BytesIO
+import bcrypt
+from cryptography.fernet import Fernet
+from tkinter import ttk
 
 
 def connect_to_mongo():
     try:
-        uri = "mongodb+srv://root:123@cluster0.bqxvu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+        uri = "mongodb+srv://DB_First:DB_Heitor060807@cluster0.xzfx3.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
         client = MongoClient(uri, server_api=ServerApi('1'))
         db = client['Loja_Virtual']
         global usuarios
-        usuarios = db['usuarios']  # Coleção para armazenar usuários
-
+        usuarios = db['usuarios'] 
         global produtos
-        produtos = db['produtos']  # Coleção de produtos
-
+        produtos = db['produtos']
+        global transacao
+        transacao = db['Transações'] 
     except Exception as e:
         messagebox.showerror("Erro", f"Não foi possível conectar ao MongoDB: {str(e)}")
+
+
 
 
 # Função para verificar login
 def verificar_login(event=None):
     usuario = entry_usuario.get()
     senha = entry_senha.get()
+    global nome
+    nome = usuario
 
-    usuario_existente = usuarios.find_one({"usuario": usuario, "senha": senha})
+    # Busca o usuário no banco de dados
+    usuario_existente = usuarios.find_one({"usuario": usuario})
 
+    # Verifica se o usuário existe e se a senha está correta
     if usuario_existente:
-        messagebox.showinfo("Login bem-sucedido", f"Bem-vindo, {usuario}!")
-        abrir_pagina_principal()
+        senha_armazenada = usuario_existente["senha"]
+
+        # Se a senha armazenada for string, converta para bytes
+        if isinstance(senha_armazenada, str):
+            senha_armazenada = senha_armazenada.encode('utf-8')
+
+        # Verificação da senha
+        if bcrypt.checkpw(senha.encode('utf-8'), senha_armazenada):
+            messagebox.showinfo("Login bem-sucedido", f"Bem-vindo, {usuario}!")
+            abrir_pagina_principal()
+        else:
+            messagebox.showerror("Erro de login", "Usuário ou senha incorretos.")
     else:
         messagebox.showerror("Erro de login", "Usuário ou senha incorretos.")
 
@@ -40,11 +59,14 @@ def verificar_login(event=None):
 def criar_cadastro(event=None):
     usuario = entry_usuario.get()
     senha = entry_senha.get()
-
+    global nome
+    nome = usuario
     if usuarios.find_one({"usuario": usuario}):
         messagebox.showerror("Erro", "Usuário já existe. Escolha um nome de usuário diferente.")
     else:
-        usuarios.insert_one({"usuario": usuario, "senha": senha})
+        # Hash da senha com bcrypt
+        hashed_senha = bcrypt.hashpw(senha.encode('utf-8'), bcrypt.gensalt())
+        usuarios.insert_one({"usuario": usuario, "senha": hashed_senha})
         messagebox.showinfo("Sucesso", "Cadastro realizado com sucesso!")
 
 
@@ -128,7 +150,6 @@ def abrir_pagina_principal():
 
     janela_principal.mainloop()
 
-
 def atualizar_pagina_principal(conteudo_principal):
     # Limpa o conteúdo principal para evitar duplicação
     for widget in conteudo_principal.winfo_children():
@@ -152,7 +173,6 @@ def create_block(parent, name, price, url_imagem, row, column):
     """Função para criar um 'bloquinho' com nome, preço e botão de compra."""
     block = tk.Frame(parent, bg='white', padx=20, pady=20, relief='groove', bd=2)
     block.grid(row=row, column=column, padx=10, pady=10, sticky='nsew')
-
     imagem = carregar_imagem_url(url_imagem)
     if imagem:
         image_label = tk.Label(block, image=imagem, bg='white')
@@ -171,8 +191,82 @@ def create_block(parent, name, price, url_imagem, row, column):
     buy_button.pack(pady=10)
 
 
+from datetime import datetime
+
+def confirmar_compra(cartao, validade, cvc, produto, p):
+    """Função que confirma a compra e lida com os dados de entrada"""
+    if not cartao or not validade or not cvc:
+        print("Erro: Preencha todos os campos.")
+        return
+
+    try:
+        # Obter a data e hora atuais
+        data_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Formato: Ano-Mês-Dia Hora:Minuto:Segundo
+
+        # Criptografar os dados sensíveis
+        cartao_criptografado = criptografar_dados(cartao)
+        validade_criptografada = criptografar_dados(validade)
+        cvc_criptografado = criptografar_dados(cvc)
+
+        try:
+            # Inserir a transação no banco de dados com a data incluída
+            transacao.insert_one({
+                "usuario": nome,
+                "produto": produto,
+                "cartao": cartao_criptografado,
+                "validade": validade_criptografada,
+                "cvc": cvc_criptografado,
+                "preco": p,
+                "data": data_atual  # Adicionando o campo de data
+            })
+            messagebox.showinfo("Compra Confirmada", "Compra do produto realizada com sucesso!")
+        except Exception as e:
+            messagebox.showerror("Erro ao Salvar Transação", f"Erro ao salvar transação: {str(e)}")
+
+    except Exception as e:
+        print(f"Erro ao confirmar a compra: {e}")
+        return
+
+
+def criar_janela_pagamento(p):
+    janela_pagamento = tk.Tk()
+    janela_pagamento.title("Finalizar Compra")
+    
+    tk.Label(janela_pagamento, text="Nome do Usuário").pack()
+    entry_usuario = tk.Entry(janela_pagamento)
+    entry_usuario.pack(pady=5)
+
+    tk.Label(janela_pagamento, text="Número do Cartão").pack()
+    entry_cartao = tk.Entry(janela_pagamento)
+    entry_cartao.pack(pady=5)
+
+    tk.Label(janela_pagamento, text="Validade do Cartão (MM/AA)").pack()
+    entry_validade = tk.Entry(janela_pagamento)
+    entry_validade.pack(pady=5)
+
+    tk.Label(janela_pagamento, text="CVC").pack()
+    entry_cvc = tk.Entry(janela_pagamento)
+    entry_cvc.pack(pady=5)
+
+
+    btn_confirmar = tk.Button(janela_pagamento, text="Confirmar Compra", command=lambda: confirmar_compra(
+    entry_cartao.get(), entry_validade.get(), entry_cvc.get(), produto))
+
+
+    btn_confirmar.pack(pady=20)
+
+    janela_pagamento.mainloop()
+
+
+
+
+    
+    # Supomos que você já tem o nome do usuário
+    
+
+# Função para criar a janela de pagamento
 def abrir_janela_pagamento(product_name, product_price):
-    """Função para abrir a janela de pagamento."""
+    """Função para abrir a janela de pagamento e pegar os dados para criptografar."""
     # Criar uma nova janela
     janela_pagamento = tk.Toplevel()
     janela_pagamento.title("Pagamento")
@@ -181,13 +275,6 @@ def abrir_janela_pagamento(product_name, product_price):
     largura_janela = 500
     altura_janela = 400
     janela_pagamento.geometry(f"{largura_janela}x{altura_janela}")
-
-    # Centralizar a janela na tela
-    screen_width = janela_pagamento.winfo_screenwidth()
-    screen_height = janela_pagamento.winfo_screenheight()
-    x = (screen_width // 2) - (largura_janela // 2)
-    y = (screen_height // 2) - (altura_janela // 2)
-    janela_pagamento.geometry(f"{largura_janela}x{altura_janela}+{x}+{y}")
 
     # Informações do produto
     label_info = tk.Label(janela_pagamento, text=f"Compra: {product_name} - R$ {product_price:.2f}",
@@ -213,23 +300,12 @@ def abrir_janela_pagamento(product_name, product_price):
     botao_confirmar = tk.Button(janela_pagamento, text="Confirmar Compra", bg='green', fg='white',
                                 font=("Helvetica", 12),
                                 command=lambda: confirmar_compra(entry_cartao.get(), entry_validade.get(),
-                                                                 entry_cvc.get(), product_name))
+                                                                 entry_cvc.get(), product_name, product_price))
     botao_confirmar.pack(pady=20)
-
-
-def confirmar_compra(cartao, validade, cvc, product_name):
-    """Função que confirma a compra e exibe uma mensagem."""
-    print(f"Compra confirmada: {product_name}. Cartão: {cartao}, Validade: {validade}, CVC: {cvc}")
-    messagebox.showinfo("Compra Confirmada", f"Compra do produto '{product_name}' realizada com sucesso!")
 
 
 def abrir_menu_produtos(conteudo_principal):
     # Conectar ao MongoDB e acessar a coleção de produtos
-    uri = "mongodb+srv://root:123@cluster0.bqxvu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-
-    client = MongoClient(uri, server_api=ServerApi('1'))
-    db = client['Loja_Virtual']
-    produtos = db['produtos']  # Coleção de produtos
     janela_produtos = tk.Tk()
     janela_produtos.title("Produtos")
     janela_produtos.attributes('-fullscreen', True)  # Tela cheia automaticamente
@@ -299,27 +375,96 @@ def abrir_menu_produtos(conteudo_principal):
 
     janela_produtos.mainloop()
 
-
+def gerar_chave():
+    chave = Fernet.generate_key()
+    return chave
 # Função para voltar ao menu principal
 def voltar_para_menu(janela_atual):
     janela_atual.destroy()
     abrir_pagina_principal()
 
 
+
+
 def abrir_historico_transacoes():
+    # Verificar se o nome do usuário está definido
+    if not nome:
+        print("Erro: nome do usuário não foi definido.")
+        return
+
+    # Conexão com MongoDB
+    try:
+        uri = "mongodb+srv://DB_First:DB_Heitor060807@cluster0.xzfx3.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+        client = MongoClient(uri, server_api=ServerApi('1'))
+        db = client['Loja_Virtual']
+        transacao = db['Transações']
+        # Buscar transações do usuário
+        resultados = transacao.find({"usuario": nome})
+        resultados = list(resultados)  # Converter cursor para lista
+    except Exception as e:
+        print(f"Erro ao buscar preços e produtos: {e}")
+        resultados = []
+    finally:
+        client.close()  # Encerrar a conexão com o MongoDB
+
+    # Criar janela de histórico
     janela_historico = tk.Tk()
     janela_historico.title("Histórico de Transações")
-    janela_historico.attributes('-fullscreen', True)  # Tela cheia automaticamente
+    janela_historico.attributes('-fullscreen', True)
 
-    label_historico = tk.Label(janela_historico, text="Aqui será o seu histórico de transações.",
-                               font=("Helvetica", 20))
-    label_historico.pack(pady=50)
+    # Título do histórico
+    label_historico = tk.Label(
+        janela_historico,
+        text=f"Histórico de Transações de {nome}",
+        font=("Helvetica", 24, "bold")
+    )
+    label_historico.pack(pady=20)
 
-    botao_voltar = tk.Button(janela_historico, text="Voltar", command=lambda: voltar_para_menu(janela_historico),
-                             font=("Helvetica", 14), bg="yellow", fg="black")
+    # Frame para conter a tabela e a barra de rolagem
+    frame_tabela = tk.Frame(janela_historico)
+    frame_tabela.pack(pady=10, padx=20, fill="both", expand=True)
+
+    # Tabela para exibir as transações
+    colunas = ("Produto", "Preço", "Data")
+    tabela = ttk.Treeview(frame_tabela, columns=colunas, show="headings")
+    tabela.heading("Produto", text="Produto")
+    tabela.heading("Preço", text="Preço (R$)")
+    tabela.heading("Data", text="Data")
+    tabela.column("Produto", anchor="center", width=200)
+    tabela.column("Preço", anchor="center", width=100)
+    tabela.column("Data", anchor="center", width=150)
+
+    # Adicionar transações à tabela
+    import locale
+    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')  # Configuração regional para BRL
+    for transacao in resultados:
+        produto = transacao.get("produto", "Desconhecido")
+        preco = transacao.get("preco", 0.0)
+        data = transacao.get("data", "Desconhecida")  # Pega a data ou define como "Desconhecida"
+        preco_formatado = locale.currency(preco, grouping=True)  # Formatar preço
+        tabela.insert("", "end", values=(produto, preco_formatado, data))
+
+    # Barra de rolagem vertical
+    barra_rolagem = tk.Scrollbar(frame_tabela, orient="vertical", command=tabela.yview)
+    tabela.configure(yscrollcommand=barra_rolagem.set)
+    barra_rolagem.pack(side="right", fill="y")
+    tabela.pack(side="left", fill="both", expand=True)
+
+    # Botão de voltar
+    botao_voltar = tk.Button(
+        janela_historico,
+        text="Voltar",
+        command=lambda: voltar_para_menu(janela_historico),
+        font=("Helvetica", 14),
+        bg="#ffcc00",
+        fg="black"
+    )
     botao_voltar.pack(pady=20)
 
+    # Iniciar a interface gráfica
     janela_historico.mainloop()
+
+
 
 
 # Função para criar a interface de Login/Cadastro
@@ -390,7 +535,10 @@ def criar_janela_login():
     botao_cadastro.config(state=tk.DISABLED)
 
     janela_login.mainloop()
-
+def criptografar_dados(dado):
+    return fernet.encrypt(dado.encode())
 
 # Chamar a função para criar a janela de login ao iniciar o programa
+chave_fernet = gerar_chave()
+fernet = Fernet(chave_fernet)
 criar_janela_login()
